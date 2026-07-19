@@ -1,21 +1,30 @@
 package com.example.pomodoro.viewmodel
 
+import android.app.Application
 import android.os.CountDownTimer
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.example.pomodoro.model.Session
 import com.example.pomodoro.model.Task
 import com.example.pomodoro.storage.AppData
+import com.example.pomodoro.storage.DataStoreManager
 import com.example.pomodoro.ui.MainUiState
 import com.example.pomodoro.utils.Constants
+import kotlinx.coroutines.launch
 
-class MainViewModel : ViewModel() {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val dataStoreManager = DataStoreManager(application)
 
     private val _uiState = MutableLiveData(MainUiState())
 
     val uiState: LiveData<MainUiState>
         get() = _uiState
+
+    private val _timerFinishedEvent = MutableLiveData<Boolean>()
+    val timerFinishedEvent: LiveData<Boolean> get() = _timerFinishedEvent
 
     private var timer: CountDownTimer? = null
 
@@ -25,8 +34,64 @@ class MainViewModel : ViewModel() {
 
     private var totalDurationMillis = Constants.DEFAULT_POMODORO_MILLIS
 
-    private fun updateState(state: MainUiState) {
+    init {
+        loadData()
+    }
 
+    private fun loadData() {
+        viewModelScope.launch {
+            dataStoreManager.appDataFlow.collect { appData ->
+                val current = _uiState.value ?: MainUiState()
+                
+                // Si el temporizador estaba corriendo, calculamos el tiempo restante real
+                var newRemaining = remainingMillis
+                var isRunning = appData.timerRunning
+                
+                if (appData.timerRunning && appData.timerEndTime > System.currentTimeMillis()) {
+                    newRemaining = appData.timerEndTime - System.currentTimeMillis()
+                } else if (appData.timerRunning && appData.timerEndTime <= System.currentTimeMillis() && appData.timerEndTime != 0L) {
+                    // El temporizador terminó mientras la app estaba cerrada
+                    isRunning = false
+                    newRemaining = appData.pomodoroMinutes * 60 * 1000L
+                    // Registramos la sesión pendiente
+                    registerSessionInternal(appData.tasks, appData.sessions, appData.pomodoroMinutes)
+                } else {
+                    newRemaining = appData.pomodoroMinutes * 60 * 1000L
+                }
+
+                totalDurationMillis = appData.pomodoroMinutes * 60 * 1000L
+                remainingMillis = newRemaining
+                endTime = appData.timerEndTime
+
+                updateState(current.copy(
+                    tasks = appData.tasks,
+                    sessions = appData.sessions,
+                    remainingTime = newRemaining,
+                    progress = if (totalDurationMillis > 0) (newRemaining.toFloat() / totalDurationMillis * 100).toInt() else 100,
+                    timerRunning = isRunning
+                ))
+                
+                if (isRunning && timer == null) {
+                    startTimer()
+                }
+            }
+        }
+    }
+
+    private fun saveData() {
+        val current = _uiState.value ?: return
+        viewModelScope.launch {
+            dataStoreManager.save(AppData(
+                tasks = current.tasks,
+                sessions = current.sessions,
+                timerEndTime = endTime,
+                timerRunning = timer != null,
+                pomodoroMinutes = (totalDurationMillis / 60000).toInt()
+            ))
+        }
+    }
+
+    private fun updateState(state: MainUiState) {
         _uiState.value = state
     }
     fun addTask(title: String): Boolean {
@@ -41,6 +106,7 @@ class MainViewModel : ViewModel() {
 
         newTasks.add(Task(id = System.currentTimeMillis(), title = title.trim()))
         updateState(current.copy(tasks = newTasks))
+        saveData()
 
         return true
     }
@@ -54,6 +120,7 @@ class MainViewModel : ViewModel() {
             }
 
         updateState(current.copy(tasks = newTasks))
+        saveData()
     }
 
     fun completeTask(task: Task, completed: Boolean) {
@@ -70,6 +137,7 @@ class MainViewModel : ViewModel() {
             }
 
         updateState(current.copy(tasks = newTasks))
+        saveData()
     }
 
     fun selectTask(task: Task) {
@@ -87,6 +155,7 @@ class MainViewModel : ViewModel() {
             }
 
         updateState(current.copy(tasks = newTasks))
+        saveData()
     }
 
     fun startTimer() {
@@ -94,6 +163,7 @@ class MainViewModel : ViewModel() {
         if (timer != null) return
 
         endTime = System.currentTimeMillis() + remainingMillis
+        saveData()
         timer = object : CountDownTimer(remainingMillis, 1000) {
 
             override fun onTick(millisUntilFinished: Long) {
@@ -114,6 +184,7 @@ class MainViewModel : ViewModel() {
 
                 timer = null
                 remainingMillis = totalDurationMillis
+                _timerFinishedEvent.postValue(true)
                 registerSession()
             }
         }
@@ -126,6 +197,7 @@ class MainViewModel : ViewModel() {
         timer = null
 
         updateState(_uiState.value!!.copy(timerRunning = false))
+        saveData()
     }
 
     fun resumeTimer() {
@@ -140,46 +212,49 @@ class MainViewModel : ViewModel() {
 
         timer?.cancel()
         timer = null
-        remainingMillis = Constants.DEFAULT_POMODORO_MILLIS
+        remainingMillis = totalDurationMillis
         updateState(_uiState.value!!.copy(remainingTime = remainingMillis, progress = 100, timerRunning = false))
+        endTime = 0
+        saveData()
     }
 
     private fun registerSession() {
-
         val current = _uiState.value!!
-        val activeTask = current.tasks.find {
+        registerSessionInternal(current.tasks, current.sessions, (totalDurationMillis / 60000).toInt())
+    }
 
+    private fun registerSessionInternal(tasks: List<Task>, sessions: List<Session>, durationMinutes: Int) {
+        val activeTask = tasks.find {
             it.selected
         }
 
         if (activeTask == null) {
-
             restartTimer()
-
             return
         }
 
-        val newSessions = current.sessions.toMutableList()
+        val newSessions = sessions.toMutableList()
 
         newSessions.add(Session(
-
-                id = System.currentTimeMillis(),
-                taskName = activeTask.title,
-                completedAt = System.currentTimeMillis(),
-                durationMinutes = Constants.DEFAULT_POMODORO_MINUTES)
+            id = System.currentTimeMillis(),
+            taskName = activeTask.title,
+            completedAt = System.currentTimeMillis(),
+            durationMinutes = durationMinutes)
         )
 
+        remainingMillis = durationMinutes * 60 * 1000L
+        endTime = 0
+        
+        val current = _uiState.value!!
         updateState(
-
             current.copy(
                 sessions = newSessions,
-                remainingTime = Constants.DEFAULT_POMODORO_MILLIS,
+                remainingTime = remainingMillis,
                 progress = 100,
                 timerRunning = false
             )
         )
-
-        remainingMillis = Constants.DEFAULT_POMODORO_MILLIS
+        saveData()
     }
     fun getPendingTasks(): Int {
 
@@ -231,6 +306,23 @@ class MainViewModel : ViewModel() {
 
         val sessions = _uiState.value!!.sessions.size
         return Pair(pending, sessions)
+    }
+
+    fun onTimerFinishedEventHandled() {
+        _timerFinishedEvent.value = false
+    }
+
+    fun refreshTimer() {
+        if (timer != null && endTime > 0) {
+            val remaining = endTime - System.currentTimeMillis()
+            if (remaining <= 0) {
+                timer?.cancel()
+                timer = null
+                remainingMillis = totalDurationMillis
+                _timerFinishedEvent.postValue(true)
+                registerSession()
+            }
+        }
     }
 
     override fun onCleared() {

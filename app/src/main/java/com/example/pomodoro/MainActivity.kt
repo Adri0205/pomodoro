@@ -3,12 +3,18 @@ package com.example.pomodoro
 import android.graphics.Paint
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.example.pomodoro.databinding.ActivityMainBinding
+import com.example.pomodoro.databinding.ItemSessionBinding
 import com.example.pomodoro.databinding.ItemTaskBinding
+import com.example.pomodoro.model.Session
 import com.example.pomodoro.model.Task
 import com.example.pomodoro.viewmodel.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 
 class MainActivity : AppCompatActivity() {
@@ -57,26 +63,50 @@ class MainActivity : AppCompatActivity() {
 
             viewModel.restartTimer()
         }
+
+        binding.btnSetDuration.setOnClickListener {
+            val minutesStr = binding.etDuration.text.toString()
+            if (minutesStr.isNotEmpty()) {
+                val minutes = minutesStr.toInt()
+                if (minutes > 0) {
+                    viewModel.setPomodoroMinutes(minutes)
+                    binding.etDuration.text?.clear()
+                    Toast.makeText(this, "Duración actualizada a $minutes min", Toast.LENGTH_SHORT).show()
+                } else {
+                    binding.etDuration.error = "Mínimo 1 min"
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshTimer()
     }
 
     private fun observeViewModel() {
 
-        viewModel.tasks.observe(this) { tasks ->
+        viewModel.uiState.observe(this) { state ->
 
-            redrawTasks(tasks)
+            redrawTasks(state.tasks)
+            redrawSessions(state.sessions)
             updateSummary()
+
+            val minutes = state.remainingTime / 1000 / 60
+            val seconds = (state.remainingTime / 1000) % 60
+
+            binding.tvTimer.text =
+                String.format("%02d:%02d", minutes, seconds)
+
+            binding.progressTimer.progress =
+                state.progress
         }
 
-        viewModel.remainingTime.observe(this) {
-
-            val minutes = it / 1000 / 60
-            val seconds = (it / 1000) % 60
-            binding.tvTimer.text = String.format("%02d:%02d", minutes, seconds)
-        }
-
-        viewModel.progress.observe(this){
-
-            binding.progressTimer.progress = it
+        viewModel.timerFinishedEvent.observe(this) { finished ->
+            if (finished == true) {
+                Toast.makeText(this, "¡Pomodoro finalizado!", Toast.LENGTH_LONG).show()
+                viewModel.onTimerFinishedEventHandled()
+            }
         }
     }
 
@@ -110,6 +140,26 @@ class MainActivity : AppCompatActivity() {
 
             updateTaskAppearance(itemBinding, task)
             binding.layoutTasks.addView(itemBinding.root)
+        }
+    }
+
+    private fun redrawSessions(sessions: List<Session>) {
+
+        binding.layoutSessions.removeAllViews()
+
+        binding.tvNoSessions.visibility =
+            if (sessions.isEmpty()) View.VISIBLE else View.GONE
+
+        sessions.asReversed().forEach { session ->
+
+            val itemBinding = ItemSessionBinding.inflate(layoutInflater)
+            itemBinding.tvSessionTask.text = session.taskName
+            itemBinding.tvSessionDuration.text = "Duración: ${session.durationMinutes} minutos"
+            
+            val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+            itemBinding.tvSessionDate.text = sdf.format(Date(session.completedAt))
+
+            binding.layoutSessions.addView(itemBinding.root)
         }
     }
 

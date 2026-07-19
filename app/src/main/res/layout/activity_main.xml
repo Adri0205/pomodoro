@@ -32,6 +32,38 @@
             android:textSize="42sp"
             android:textStyle="bold" />
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Duración (min): "
+                android:textSize="16sp" />
+
+            <EditText
+                android:id="@+id/etDuration"
+                android:layout_width="60dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:hint="25"
+                android:inputType="number"
+                android:maxLength="3" />
+
+            <Button
+                android:id="@+id/btnSetDuration"
+                style="?android:attr/buttonStyleSmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Cambiar" />
+
+        </LinearLayout>
+
         <ProgressBar
             android:id="@+id/progressTimer"
             style="?android:attr/progressBarStyleHorizontal"
