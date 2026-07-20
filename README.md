@@ -8,7 +8,7 @@ Adriana Eunice Flores Hernández Carnet: FH190090.
 Francisco Andres Alas Vasquez Carnet: AV250078.
 Emanuel Ronaldo Monroy Paz Carnet: MP252018.
 
-link del repositopio:
+Link del repositopio:
 https://github.com/Adri0205/pomodoro.git
 
 Link del video:
