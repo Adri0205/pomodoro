@@ -6,7 +6,7 @@ Integrantes:
 Carlos Josué Argueta Ayala Carnet: AA251811.
 Adriana Eunice Flores Hernández Carnet: FH190090.
 Francisco Andres Alas Vasquez Carnet: AV250078.
-Emmanuel Ronaldo Monroy Paz Carnet: MP252018.
+Emanuel Ronaldo Monroy Paz Carnet: MP252018.
 
 link del repositopio:
 https://github.com/Adri0205/pomodoro.git
